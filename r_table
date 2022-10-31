@@ -1,0 +1,65 @@
+library(rvest)
+library(dplyr)
+library(tidyverse)
+library(purrr)
+library(shiny)
+
+ui <- fluidPage(
+  dateRangeInput(
+    "daterange",
+    "Date range:",
+    start  = Sys.Date() - 2,
+    end    = Sys.Date() - 1,
+    min    = "2022-09-25",
+    max    = Sys.Date() - 1,
+    format = "yyyymmdd",
+    separator = "/"
+  ),
+  textOutput("ShowUrl"),
+  hr(),
+  textOutput("ShowHtml"),
+  dataTableOutput("T")
+)
+
+server <- function(input, output) {
+  prefixes <- c("arr", "dep")
+  
+  cols <-
+    c("Hong Kong Residents",
+      "Mainland Visitors",
+      "Other Visitors",
+      "Total")
+  headers <-
+    c(
+      "Control_Point",
+      crossing(prefixes, cols) %>% unite("headers", 1:2, remove = T) %>% unlist() %>% unname()
+    )
+  
+  
+  output$T <- renderDataTable({
+    
+    date_seq<- seq(input$daterange[1], input$daterange[2], by = "1 day")
+    
+    rows <- map(date_seq, ~ {
+      URL <- 
+        paste0("https://www.immd.gov.hk/eng/stat_", format(., "%Y%m%d"),
+               ".html")
+      message(URL)
+      rows <-
+        read_html(URL) %>% html_elements(".table-passengerTrafficStat tbody tr.a")}) #the key here: select only the airport data.
+    
+    df <- map_dfr(rows,
+                  function(x) {
+                    x %>%
+                      html_elements("td[headers]") %>%
+                      set_names(headers[seq_len(NROW(.))]) %>%
+                      html_text()
+                  }) %>%
+      mutate(across(c(-1), ~ str_replace(.x, ",", "") %>% as.integer())) %>%
+      mutate(date =  date_seq)
+    
+    df
+  })
+}
+
+shiny::shinyApp(ui,server)
