@@ -1,0 +1,111 @@
+library(readr)
+library(dplyr)
+
+statistics_on_daily_passenger_traffic <-
+  read.csv(
+    url(
+      "https://www.immd.gov.hk/opendata/eng/transport/immigration_clearance/statistics_on_daily_passenger_traffic.csv"
+    )
+  )
+
+df <- statistics_on_daily_passenger_traffic
+df <- df %>%
+  select(-ncol(df)) %>%
+  setNames(
+    c(
+      'DATE',
+      'CONTROL_POINT',
+      'ARRIVAL_DEPARTURE',
+      'HK RESIDENTS',
+      'MAINLAND VISITORS',
+      'OVERSEAS VISITORS',
+      'TOTAL'
+    )
+  ) %>% #use effective names to match your filtering
+  mutate(DATE = as.Date(DATE, format = '%d-%m-%Y'))
+
+library(shiny)
+library(DT)
+library(plotly)
+library(tidyr)
+
+ui <-
+  fluidPage(
+    titlePanel("Daily passenger traffic at control points in Hong Kong"),
+    sidebarLayout(
+      sidebarPanel(
+        selectInput(
+          'CONTROL_POINT',
+          'Select Control Point',
+          unique(df$CONTROL_POINT) #have to change names to match above
+        ),
+        selectInput(
+          "VISITOR_TYPE", 
+          "Seclect Type of Vistors", 
+          names(df)[4:7], 
+          selected = names(df)[4:7][1],  
+          multiple = T
+        ),
+        radioButtons('ARRIVAL_DEPARTURE',
+                     'Travel',
+                     unique(df$ARRIVAL_DEPARTURE)),
+        #have to change names to match above)
+        dateRangeInput(
+          'date_range',
+          'Select Date',
+          start = '2021-01-01',
+          end = Sys.Date(),
+          min = '2021-01-01',
+          max = Sys.Date()
+        )
+      ),
+      mainPanel(tabsetPanel(
+        tabPanel('Table', DTOutput('table')),
+        tabPanel('Plot', plotlyOutput('plot')),
+        h6("Data source: Immigration Department, the Government of the Hong Kong Special Administrative Region.")
+        
+      ))
+    )
+  )
+
+
+server <- function(input, output, session) {
+  rval_table <- reactive({
+    df %>% filter(
+      DATE >= input$date_range[1],
+      #now your filtering names match your colnames for df
+      DATE <= input$date_range[2],
+      CONTROL_POINT == input$CONTROL_POINT,
+      #you need '==' to filter, not assignment ('<-").
+      ARRIVAL_DEPARTURE == input$ARRIVAL_DEPARTURE
+    ) %>% .[, c("DATE", "CONTROL_POINT", input$VISITOR_TYPE)]
+    
+    
+  })
+  output$table <- renderDT(rval_table())
+  
+  output$plot <- renderPlotly({
+    p <- rval_table() %>%
+      
+      gather(Item, Count, input$VISITOR_TYPE) %>%
+      ggplot(aes(
+        x = DATE,
+        y = Count,
+        fill = Item,
+        color = Item
+      )) +
+      scale_x_date(date_labels = "%y/%m", date_breaks  = "1 month") +
+      labs(color = "Type of Vistors") +
+      theme(legend.position = "bottom") +
+      theme_minimal() +
+      geom_line() 
+    
+    ggplotly(p)
+    
+  })
+  
+  
+}
+
+
+shinyApp(ui, server)
